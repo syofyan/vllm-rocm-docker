@@ -121,12 +121,13 @@ RUN --mount=type=cache,target=${CCACHE_DIR} \
 # =============================================================================
 FROM base AS final
 
-# Copy vLLM source code from build context
-# NOTE: vllm-src/ directory must exist in build context (clone vLLM first)
-COPY vllm-src/ .
+# Clone vLLM v0.6.5 source code
+ARG VLLM_VERSION=v0.6.5
+RUN git clone --depth 1 --branch ${VLLM_VERSION} https://github.com/vllm-project/vllm.git /workspace/vllm-src
+
+WORKDIR /workspace/vllm-src
 
 # Git repo check (optional - skipped in this build)
-# The .git directory is included in the copied vllm-src/
 ARG GIT_REPO_CHECK=0
 RUN if [ "$GIT_REPO_CHECK" != 0 ] && [ -d ".git" ]; then bash tools/check_repo.sh ; fi
 
