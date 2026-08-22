@@ -1,0 +1,71 @@
+# =============================================================================
+# .dockerignore for vLLM ROCm Docker Build
+# =============================================================================
+
+# Git
+.git
+.gitignore
+.github
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+*.egg
+dist/
+build/
+eggs/
+*.whl
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Documentation
+*.md
+*.rst
+docs/
+LICENSE
+
+# Tests (not needed in production image)
+tests/
+test_*/
+*_test.py
+
+# Models (downloaded at runtime, not during build)
+models/
+*.bin
+*.safetensors
+*.gguf
+
+# Cache
+.ccache/
+.cache/
+*.cache
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.log

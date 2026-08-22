@@ -1,0 +1,195 @@
+# =============================================================================
+# Custom Dockerfile for vLLM on ROCm (AMD RX 7900 XTX / gfx1100)
+# Based on: https://github.com/vllm-project/vllm/blob/v0.6.5/Dockerfile.rocm
+# Target: Qwen/Qwen3.5-4B on RX 7900 XTX (24GB VRAM)
+# =============================================================================
+
+# Default ROCm 6.2 base image
+ARG BASE_IMAGE="rocm/pytorch:rocm6.2_ubuntu20.04_py3.9_pytorch_release_2.3.0"
+
+# Build args for RX 7900 XTX (gfx1100)
+# IMPORTANT: BUILD_FA=0 because CK flash-attention does NOT support gfx1100
+ARG PYTORCH_ROCM_ARCH="gfx1100"
+ARG BUILD_FA="0"
+ARG BUILD_TRITON="1"
+ARG TRITON_BRANCH="e192dba"
+
+# =============================================================================
+# Stage 1: Base image
+# =============================================================================
+FROM ${BASE_IMAGE} AS base
+
+ARG PYTORCH_ROCM_ARCH
+
+# Install basic utilities
+RUN apt-get update && apt-get install -y \
+    python3 \
+    python3-pip \
+    curl \
+    ca-certificates \
+    sudo \
+    git \
+    bzip2 \
+    libx11-6 \
+    build-essential \
+    wget \
+    unzip \
+    tmux \
+    ccache \
+ && rm -rf /var/lib/apt/lists/*
+
+# Working directory for vLLM
+ARG APP_MOUNT=/workspace
+WORKDIR ${APP_MOUNT}
+
+# Upgrade pip
+RUN python3 -m pip install --upgrade pip
+
+# Remove sccache to avoid interference with ccache
+RUN apt-get purge -y sccache; python3 -m pip uninstall -y sccache; rm -f "$(which sccache)"
+
+# Install PyTorch 2.6.0 for ROCm 6.2
+RUN --mount=type=cache,target=/root/.cache/pip \
+    case "$(ls /opt | grep -Po 'rocm-[0-9]\.[0-9]')" in \
+        *"rocm-6.2"*) \
+            python3 -m pip uninstall -y torch torchvision \
+            && python3 -m pip install --pre \
+                torch==2.6.0.dev20241113+rocm6.2 \
+                'setuptools-scm>=8' \
+                torchvision==0.20.0.dev20241113+rocm6.2 \
+                --extra-index-url https://download.pytorch.org/whl/nightly/rocm6.2;; \
+        *) ;; esac
+
+# Environment variables for ROCm
+ENV LLVM_SYMBOLIZER_PATH=/opt/rocm/llvm/bin/llvm-symbolizer
+ENV PATH=$PATH:/opt/rocm/bin:/libtorch/bin:
+ENV LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/opt/rocm/lib/:/libtorch/lib:
+ENV CPLUS_INCLUDE_PATH=$CPLUS_INCLUDE_PATH:/libtorch/include:/libtorch/include/torch/csrc/api/include/:/opt/rocm/include:
+
+# GPU architecture target
+ENV PYTORCH_ROCM_ARCH=${PYTORCH_ROCM_ARCH}
+
+# ccache directory
+ENV CCACHE_DIR=/root/.cache/ccache
+
+# =============================================================================
+# Stage 2: Build AMD-SMI wheel
+# =============================================================================
+FROM base AS build_amdsmi
+RUN cd /opt/rocm/share/amd_smi \
+    && python3 -m pip wheel . --wheel-dir=/install
+
+# =============================================================================
+# Stage 3: Build Flash-Attention wheel (OPTIONAL - disabled for gfx1100)
+# =============================================================================
+FROM base AS build_fa
+ARG BUILD_FA
+# CK flash-attention does NOT support gfx1100 (RDNA3)
+# This stage is skipped when BUILD_FA=0
+RUN --mount=type=cache,target=${CCACHE_DIR} \
+    if [ "$BUILD_FA" = "1" ]; then \
+        mkdir -p libs \
+        && cd libs \
+        && git clone https://github.com/ROCm/flash-attention.git \
+        && cd flash-attention \
+        && git checkout "3cea2fb" \
+        && git submodule update --init \
+        && GPU_ARCHS="gfx90a;gfx942" python3 setup.py bdist_wheel --dist-dir=/install; \
+    else mkdir -p /install; fi
+
+# =============================================================================
+# Stage 4: Build Triton wheel (REQUIRED for gfx1100 - Triton FA is used)
+# =============================================================================
+FROM base AS build_triton
+ARG BUILD_TRITON
+ARG TRITON_BRANCH
+# Triton flash-attention is the default attention backend for gfx1100
+RUN --mount=type=cache,target=${CCACHE_DIR} \
+    if [ "$BUILD_TRITON" = "1" ]; then \
+        mkdir -p libs \
+        && cd libs \
+        && python3 -m pip install ninja cmake wheel pybind11 \
+        && git clone https://github.com/OpenAI/triton.git \
+        && cd triton \
+        && git checkout "${TRITON_BRANCH}" \
+        && cd python \
+        && python3 setup.py bdist_wheel --dist-dir=/install; \
+    else mkdir -p /install; fi
+
+# =============================================================================
+# Stage 5: Final vLLM build
+# =============================================================================
+FROM base AS final
+
+# Copy vLLM source code from build context
+# NOTE: vllm-src/ directory must exist in build context (clone vLLM first)
+COPY vllm-src/ .
+
+# Git repo check (optional - skipped in this build)
+# The .git directory is included in the copied vllm-src/
+ARG GIT_REPO_CHECK=0
+RUN if [ "$GIT_REPO_CHECK" != 0 ] && [ -d ".git" ]; then bash tools/check_repo.sh ; fi
+
+RUN python3 -m pip install --upgrade pip
+
+# Install development dependencies
+RUN --mount=type=cache,target=/root/.cache/pip \
+    python3 -m pip install --upgrade numba scipy huggingface-hub[cli] pytest-shard
+
+# Environment variables for vLLM
+ENV RAY_EXPERIMENTAL_NOSET_ROCR_VISIBLE_DEVICES=1
+ENV TOKENIZERS_PARALLELISM=false
+
+# Build vLLM from source
+RUN --mount=type=cache,target=${CCACHE_DIR} \
+    --mount=type=cache,target=/root/.cache/pip \
+    python3 -m pip install -Ur requirements-rocm.txt \
+    && python3 setup.py clean --all \
+    && python3 setup.py develop
+
+# Copy and install amdsmi wheel
+RUN --mount=type=bind,from=build_amdsmi,src=/install,target=/install \
+    mkdir -p libs \
+    && cp /install/*.whl libs \
+    && python3 -m pip uninstall -y amdsmi
+
+# Copy and install triton wheel (REQUIRED for gfx1100)
+RUN --mount=type=bind,from=build_triton,src=/install,target=/install \
+    mkdir -p libs \
+    && if ls /install/*.whl; then \
+        cp /install/*.whl libs \
+        && python3 -m pip uninstall -y triton; fi
+
+# Copy and install flash-attn wheel (if built)
+RUN --mount=type=bind,from=build_fa,src=/install,target=/install \
+    mkdir -p libs \
+    && if ls /install/*.whl; then \
+        cp /install/*.whl libs \
+        && python3 -m pip uninstall -y flash-attn; fi
+
+# Install all wheels
+RUN --mount=type=cache,target=/root/.cache/pip \
+    if ls libs/*.whl; then \
+    python3 -m pip install libs/*.whl; fi
+
+# Install test utilities
+RUN python3 -m pip install -e tests/vllm_test_utils
+
+# =============================================================================
+# RX 7900 XTX (gfx1100) specific environment variables
+# =============================================================================
+# IMPORTANT: HSA_OVERRIDE_GFX_VERSION is required for gfx1100
+ENV HSA_OVERRIDE_GFX_VERSION=11.0.0
+ENV PYTORCH_ROCM_ARCH=gfx1100
+
+# Use Triton flash-attention (default for gfx1100, CK FA not supported)
+ENV VLLM_USE_TRITON_FLASH_ATTN=1
+
+# Disable HIP graphs if causing issues (uncomment if needed)
+# ENV VLLM_HIP_GRAPH_SKIP=1
+
+# =============================================================================
+# Default: bash shell (manual vLLM execution)
+# =============================================================================
+WORKDIR /workspace
+CMD ["/bin/bash"]

@@ -1,0 +1,36 @@
+# vLLM source (cloned during build, not committed)
+vllm-src/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Models
+models/
+*.bin
+*.safetensors
+*.gguf
+
+# Cache
+.cache/
+*.cache
+
+# Logs
+*.log
+tmp/
