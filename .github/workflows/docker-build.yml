@@ -39,14 +39,14 @@ jobs:
             --recurse-submodules --shallow-submodules \
             https://github.com/vllm-project/vllm.git /tmp/vllm
 
-      - name: Patch Dockerfile.rocm - install PyTorch 2.5.1 for ROCm 6.2
+      - name: Patch Dockerfile.rocm
         run: |
           python3 << 'EOF'
           import re
           with open('/tmp/vllm/Dockerfile.rocm', 'r') as f:
               content = f.read()
           
-          # Replace the PyTorch nightly install block
+          # 1. Replace PyTorch nightly with stable 2.5.1
           old_pattern = r'# Install torch == 2\.6\.0 on ROCm.*?esac'
           new_block = """# Install PyTorch 2.5.1 stable for ROCm 6.2
           RUN --mount=type=cache,target=/root/.cache/pip \\
@@ -57,6 +57,12 @@ jobs:
                   --index-url https://download.pytorch.org/whl/rocm6.2"""
           
           content = re.sub(old_pattern, new_block, content, flags=re.DOTALL)
+          
+          # 2. Add setuptools_scm before vLLM build
+          content = content.replace(
+              'python3 -m pip install -Ur requirements-rocm.txt',
+              'python3 -m pip install setuptools_scm && python3 -m pip install -Ur requirements-rocm.txt'
+          )
           
           with open('/tmp/vllm/Dockerfile.rocm', 'w') as f:
               f.write(content)
