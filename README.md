@@ -14,7 +14,7 @@ Custom Docker image for running vLLM on AMD RX 7900 XTX (gfx1100) with ROCm 6.2.
 ### Pull from Docker Hub
 
 ```bash
-docker pull syofyan/vllm-rocm:latest
+docker pull kapteng/vllm-rocm:latest
 ```
 
 ### Run Container
@@ -33,7 +33,7 @@ docker run -it \
   -e HF_HOME=/root/.cache/huggingface \
   -e HSA_OVERRIDE_GFX_VERSION=11.0.0 \
   -e PYTORCH_ROCM_ARCH=gfx1100 \
-  syofyan/vllm-rocm:latest
+  kapteng/vllm-rocm:latest
 ```
 
 ### Start vLLM Server
@@ -65,7 +65,7 @@ DOCKER_BUILDKIT=1 docker build \
   --build-arg BUILD_TRITON="1" \
   --build-arg PYTORCH_ROCM_ARCH="gfx1100" \
   -f Dockerfile.rocm \
-  -t syofyan/vllm-rocm:latest \
+  -t kapteng/vllm-rocm:latest \
   .
 ```
 

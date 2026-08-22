@@ -14,7 +14,7 @@ on:
         default: 'latest'
 
 env:
-  DOCKER_IMAGE: syofyan/vllm-rocm
+  DOCKER_IMAGE: kapteng/vllm-rocm
 
 jobs:
   build-and-push:
