@@ -15,6 +15,7 @@ on:
 
 env:
   DOCKER_IMAGE: kapteng/vllm-rocm
+  VLLM_VERSION: v0.6.5
 
 jobs:
   build-and-push:
@@ -22,6 +23,12 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+
+      - name: Clone vLLM source
+        run: |
+          git clone --depth 1 --branch ${{ env.VLLM_VERSION }} \
+            --recurse-submodules --shallow-submodules \
+            https://github.com/vllm-project/vllm.git /tmp/vllm
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -47,8 +54,8 @@ jobs:
       - name: Build and push Docker image
         uses: docker/build-push-action@v7
         with:
-          context: .
-          file: Dockerfile.rocm
+          context: /tmp/vllm
+          file: /tmp/vllm/Dockerfile.rocm
           platforms: linux/amd64
           push: true
           build-args: |
