@@ -48,17 +48,8 @@ RUN python3 -m pip install --upgrade pip
 # Remove sccache to avoid interference with ccache
 RUN apt-get purge -y sccache; python3 -m pip uninstall -y sccache; rm -f "$(which sccache)"
 
-# Install PyTorch 2.6.0 for ROCm 6.2
-RUN --mount=type=cache,target=/root/.cache/pip \
-    case "$(ls /opt | grep -Po 'rocm-[0-9]\.[0-9]')" in \
-        *"rocm-6.2"*) \
-            python3 -m pip uninstall -y torch torchvision \
-            && python3 -m pip install --pre \
-                torch==2.6.0.dev20241122+rocm6.2 \
-                'setuptools-scm>=8' \
-                torchvision==0.20.0.dev20241122+rocm6.2 \
-                --extra-index-url https://download.pytorch.org/whl/nightly/rocm6.2;; \
-        *) ;; esac
+# Use PyTorch from base image (rocm/pytorch:rocm6.2_..._pytorch_release_2.3.0)
+# PyTorch 2.3.0 is compatible with vLLM v0.6.5 and ROCm 6.2
 
 # Environment variables for ROCm
 ENV LLVM_SYMBOLIZER_PATH=/opt/rocm/llvm/bin/llvm-symbolizer
