@@ -39,11 +39,30 @@ jobs:
             --recurse-submodules --shallow-submodules \
             https://github.com/vllm-project/vllm.git /tmp/vllm
 
-      - name: Patch Dockerfile.rocm - fix PyTorch nightly version
+      - name: Patch Dockerfile.rocm - install PyTorch 2.5.1 for ROCm 6.2
         run: |
-          sed -i 's/torch==2.6.0.dev20241113+rocm6.2/torch==2.6.0.dev20240918/g' /tmp/vllm/Dockerfile.rocm
-          sed -i 's/torchvision==0.20.0.dev20241113+rocm6.2/torchvision==0.20.0.dev20240918/g' /tmp/vllm/Dockerfile.rocm
-          sed -i 's/--extra-index-url/--index-url/g' /tmp/vllm/Dockerfile.rocm
+          python3 << 'EOF'
+          import re
+          with open('/tmp/vllm/Dockerfile.rocm', 'r') as f:
+              content = f.read()
+          
+          # Replace the PyTorch nightly install block
+          old_pattern = r'# Install torch == 2\.6\.0 on ROCm.*?esac'
+          new_block = """# Install PyTorch 2.5.1 stable for ROCm 6.2
+          RUN --mount=type=cache,target=/root/.cache/pip \\
+              python3 -m pip uninstall -y torch torchvision \\
+              && python3 -m pip install --no-cache-dir \\
+                  torch==2.5.1 \\
+                  torchvision==0.20.1 \\
+                  --index-url https://download.pytorch.org/whl/rocm6.2"""
+          
+          content = re.sub(old_pattern, new_block, content, flags=re.DOTALL)
+          
+          with open('/tmp/vllm/Dockerfile.rocm', 'w') as f:
+              f.write(content)
+          
+          print("Dockerfile.rocm patched successfully")
+          EOF
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
