@@ -39,9 +39,11 @@ jobs:
             --recurse-submodules --shallow-submodules \
             https://github.com/vllm-project/vllm.git /tmp/vllm
 
-      - name: Patch Dockerfile.rocm - remove PyTorch nightly upgrade
+      - name: Patch Dockerfile.rocm - fix PyTorch nightly version
         run: |
-          sed -i '/# Install torch == 2.6.0 on ROCm/,/esac/d' /tmp/vllm/Dockerfile.rocm
+          sed -i 's/torch==2.6.0.dev20241113+rocm6.2/torch==2.6.0.dev20240918+rocm6.2/g' /tmp/vllm/Dockerfile.rocm
+          sed -i 's/torchvision==0.20.0.dev20241113+rocm6.2/torchvision==0.20.0.dev20240918+rocm6.2/g' /tmp/vllm/Dockerfile.rocm
+          sed -i 's/--extra-index-url/--index-url/g' /tmp/vllm/Dockerfile.rocm
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
